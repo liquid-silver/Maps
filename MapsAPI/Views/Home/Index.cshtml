@@ -1,0 +1,155 @@
+﻿@{
+    ViewData["Title"] = "Home page";
+}
+
+<link rel="stylesheet" href="~/css/mapStyle.css" />
+<h3>Расчет стоимости поездки</h3>
+<div id="map" class="map"></div>
+<script src="https://api-maps.yandex.ru/2.1/?apikey=8730ee08-a530-460e-b7e9-bbacfb567b40&lang=ru_RU" type="text/javascript"></script>
+
+<script type="text/javascript">
+    // Функция ymaps.ready() будет вызвана, когда загрузятся все компоненты API, а также когда будет готово DOM-дерево.
+    ymaps.ready(init);
+    function init() {
+        // Стоимость за километр.
+        const CITY_TARIFF = 1000.00,
+            COUNTRYSIDE_TARIFF = 100.00;
+
+        // Создание карты.
+        var map = new ymaps.Map("map", {
+            // Координаты центра карты: «широта, долгота».
+            center: [59.95, 30.35],
+            // Уровень масштабирования. Допустимые значения: от 0 (весь мир) до 19.
+            zoom: 11,
+            controls: ['routePanelControl']
+        });
+
+        // Создаем прямоугольник с помощью вспомогательного класса.
+        var myRectangle = new ymaps.Rectangle([
+            // Задаем координаты диагональных углов прямоугольника.
+            [60.1, 30.555],
+            [59.8, 29.65]
+        ], {
+            //Свойства
+            hintContent: 'Меня перетаскивать нельзя!',
+            balloonContent: 'Прямоугольник 1'
+        }, {
+            // Опции.
+            // Цвет и прозрачность заливки.
+            fillColor: '#7df9ff33',
+            // Дополнительная прозрачность заливки..
+            // Итоговая прозрачность будет не #33(0.2), а 0.1(0.2*0.5).
+            fillOpacity: 0.5,
+            // Цвет обводки.
+            strokeColor: '#0000FF',
+            // Прозрачность обводки.
+            strokeOpacity: 0.5,
+            // Ширина линии.
+            strokeWidth: 2,
+            // Радиус скругления углов.
+            // Данная опция принимается только прямоугольником.
+            borderRadius: 200,
+            visible: false
+        });
+
+        map.geoObjects.add(myRectangle);
+
+        ////маркер
+        //let placemark = new ymaps.Placemark([59.940669, 30.491097], {}, { //
+        //    iconLayout: 'default#image',
+        //    iconImageHref: 'https://cdn-icons-png.flaticon.com/512/8758/8758493.png',
+        //    iconImageSize: [40, 40],
+        //    iconImageOffset: [-19, -44]
+        //})
+        //map.geoObjects.add(placemark);
+
+        map.controls.remove('geolocationControl'); // удаляем геолокацию
+        map.controls.remove('searchControl'); // удаляем поиск
+        map.controls.remove('trafficControl'); // удаляем контроль трафика
+        map.controls.remove('typeSelector'); // удаляем тип
+        map.controls.remove('fullscreenControl'); // удаляем кнопку перехода в полноэкранный режим
+        //map.controls.remove('zoomControl'); // удаляем контрол зуммирования
+        map.controls.remove('rulerControl'); // удаляем контрол правил
+        //map.behaviors.disable(['scrollZoom']); // отключаем скролл карты (опционально)
+
+        let control = map.controls.get('routePanelControl');
+
+        control.routePanel.state.set({
+            type: 'auto',
+            fromEnabled: true,
+            toEnabled: true
+        })
+
+        control.routePanel.options.set({
+            reverseGeocoding: true,
+            types: { auto: true }
+        })
+
+        // Получим ссылку на маршрут.
+        control.routePanel.getRouteAsync().then(function (route) {
+
+            // Зададим максимально допустимое число маршрутов, возвращаемых мультимаршрутизатором.
+            route.model.setParams({ results: 1 }, true);
+
+            // Повесим обработчик на событие построения маршрута.
+            route.model.events.add('requestsuccess', function () {
+
+                var activeRoute = route.getActiveRoute();
+                if (activeRoute) {
+                    // Получим протяженность и длительность маршрута.
+                    let length = activeRoute.properties.get("distance"),
+                        text = String(activeRoute.properties.get("duration").text),
+                        time = getTime(text),
+
+                        // Вычислим стоимость доставки.
+                        price = calculateOut(Math.round(length.value / 1000));
+
+                    let from = control.routePanel.state.get("from"),
+                        to = control.routePanel.state.get('to');
+                    console.log(from);
+                    console.log(to);
+                    let coords = '['+from[0] + ', ' + from[1]+']';
+                    console.log(coords);
+                    if (myRectangle.geometry.contains(from) && myRectangle.geometry.contains(to)) {
+                        price = calculateIn(time);
+                    }
+                    // Создадим макет содержимого балуна маршрута.
+                    balloonContentLayout = ymaps.templateLayoutFactory.createClass(
+                        '<span>Расстояние: ' + length.text + '.</span><br/>' +
+                        '<span>Время: ' + activeRoute.properties.get("duration").text + '</span><br/>' +
+                        '<span style="font-weight: bold; font-style: italic">Стоимость доставки: ' + price + ' р.</span>');
+                    // Зададим этот макет для содержимого балуна.
+                    route.options.set('routeBalloonContentLayout', balloonContentLayout);
+                    // Откроем балун.
+                    activeRoute.balloon.open();
+                }
+            });
+        });
+
+        // Функции, вычисляющие стоимость доставки.
+        function calculateIn(routeDuration) {
+            return Math.round((routeDuration * CITY_TARIFF/60));
+        }
+        function calculateOut(routeLength) {
+            return routeLength * COUNTRYSIDE_TARIFF;
+        }
+        // Функция, вычисляющая время.
+        function getTime(time) {
+            let result = 0;
+            let bufer = time;
+            //дни
+            if (bufer.indexOf("д") > -1) {
+                result += bufer.substring(0, bufer.indexOf("д") - 1) * 24 * 60;
+                bufer = bufer.substring(bufer.indexOf("д") + 4);
+            }
+            //часы
+            if (bufer.indexOf("ч") > -1) {
+                result += bufer.substring(0, bufer.indexOf("ч") - 1) * 60;
+                bufer = bufer.substring(bufer.indexOf("ч") + 2);
+            }
+            //минуты
+            result += Number(bufer.substring(0, bufer.indexOf("м") - 1));
+            return result;
+        }
+    }
+</script>
